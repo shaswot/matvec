@@ -1,6 +1,37 @@
-/build
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Documents
+*.pdf
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+.idea/
 **/.ipynb_checkpoints
+
+# Tensorboard Runs
+runs/
+
+# Pytorch models and weights
+/weights
+/models
+*.pt
+
+# Job logs
+/logging
+/results
+/pdfs
+
+# Archived folders
+/archived_notebooks
+/archived_scripts
+
+# C++ folders
+/build
 /data
 
+# CUDA logfiles
 /cuda_logfiles
 cuda_log-w*.*
