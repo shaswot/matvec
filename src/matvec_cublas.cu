@@ -11,12 +11,60 @@
 
 #include <boost/filesystem.hpp>
 
-#include "matvec_blas.cpp"
+#include <time.h>
+#include <cblas.h>
+#include <cublas_v2.h>
+
+
 
 // GLOBAL VARIABLES
 uint LAYER_WIDTH = 512;
 uint MODEL_SEED = 52233264;
 
+template <class _Tp>
+xt::xarray<_Tp> matVecMul (xt::xarray<_Tp> matrix_A, 
+                           xt::xarray<_Tp> vector_B)
+{
+  unsigned int n_rows = matrix_A.shape()[0];
+  unsigned int n_cols = matrix_A.shape()[1];
+  
+  unsigned int size_A = n_rows * n_cols;
+  unsigned int size_B = n_cols;
+  assert (vector_B.shape()[0] == size_B && "matrix A and vector B shape mismatch.");
+  assert (vector_B.shape()[1] == 1 && "vector B no. of columns != 1");
+  unsigned int size_C = n_rows;
+  
+  // declare matrices for GPU and allocate memory
+  
+  // host copies of A,B,C
+  _Tp *A = new _Tp[size_A];
+  _Tp *B = new _Tp[size_B]; 
+  _Tp *C = new _Tp[size_C];
+//   gpc_id *myid = new gpc_id[size_C];
+  
+  // Allocate Unified Memory – accessible from CPU or GPU
+  cudaMallocManaged(&A, size_A*sizeof(_Tp));
+  cudaMallocManaged(&B, size_B*sizeof(_Tp));
+  cudaMallocManaged(&C, size_C*sizeof(_Tp));
+//   cudaMallocManaged(&myid, size_C*sizeof(gpc_id));
+  
+  // Fill the matrix values from xtensor to C++ array
+  for (int i = 0; i < size_A; i++)
+  A[i] = matrix_A.flat(i);
+   
+  for (int i = 0; i < size_B; i++)
+  B[i] = vector_B.flat(i);
+  
+  //run mat-vec multiplication
+  
+  
+  // free memory
+  cudaFree(A);
+  cudaFree(B);
+  cudaFree(C);
+  
+  return vec_C;
+}
 
 int main()
 {
@@ -52,10 +100,15 @@ int main()
   std::cout << "Input Vector Shape: "<< xt::adapt(input_vector.shape()) << std::endl;
   std::cout << "******************************" << std::endl;
   
+  
   xt::xarray<float> matvecproduct = xt::linalg::dot(tr_dense_weights, input_vector);
+  
+  
   std::cout << "Matrix-Vector Product Shape: " << xt::adapt(matvecproduct.shape()) << std::endl;
   std::cout << "Matrix-Vector Product" << std::endl;
   std::cout << matvecproduct << std::endl;
+  
+  
     
 
   std::cout << "******************************" << std::endl;

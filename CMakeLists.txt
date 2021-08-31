@@ -37,8 +37,10 @@ find_package(Boost 1.77.0 COMPONENTS program_options REQUIRED)
 if(Boost_FOUND)
     add_executable(matvec_blas src/matvec_blas.cpp) 
     target_link_libraries(matvec_blas Boost::program_options ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES})
+    
+    add_executable(matvec_cblas src/matvec_cblas.cpp) 
+    target_link_libraries(matvec_cblas Boost::program_options ${BLAS_LIBRARIES})
 endif()
 
-
-
+# matvec_blas # add_executable(matvec_cublas src/matvec_cublas.cu) # target_link_libraries(matvec_cublas)
 ## target_link_libraries(matvec -lcurand)
