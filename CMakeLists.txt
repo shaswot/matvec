@@ -33,10 +33,12 @@ set(Boost_USE_STATIC_RUNTIME OFF)
 find_package(Boost 1.77.0 COMPONENTS program_options REQUIRED)
 # https://stackoverflow.com/questions/3897839/how-to-link-c-program-with-boost-using-cmake/43885372#43885372
 
+# matvec_blas
 if(Boost_FOUND)
-    add_executable(matvec src/matvec.cu) 
-    target_link_libraries(matvec Boost::program_options ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES})
+    add_executable(matvec_blas src/matvec_blas.cpp) 
+    target_link_libraries(matvec_blas Boost::program_options ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES})
 endif()
+
 
 
 ## target_link_libraries(matvec -lcurand)

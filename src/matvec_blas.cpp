@@ -1,6 +1,6 @@
 #include <iostream>
 #include <string>
-
+#include <chrono>
 
 #include <xtensor/xarray.hpp>
 #include <xtensor/xio.hpp>
@@ -10,9 +10,6 @@
 #include <xtensor-blas/xlinalg.hpp>
 
 #include <boost/filesystem.hpp>
-
-#include "matvec_blas.cpp"
-
 // GLOBAL VARIABLES
 uint LAYER_WIDTH = 512;
 uint MODEL_SEED = 52233264;
@@ -52,13 +49,24 @@ int main()
   std::cout << "Input Vector Shape: "<< xt::adapt(input_vector.shape()) << std::endl;
   std::cout << "******************************" << std::endl;
   
-  xt::xarray<float> matvecproduct = xt::linalg::dot(tr_dense_weights, input_vector);
-  std::cout << "Matrix-Vector Product Shape: " << xt::adapt(matvecproduct.shape()) << std::endl;
-  std::cout << "Matrix-Vector Product" << std::endl;
-  std::cout << matvecproduct << std::endl;
-    
+  // Time the actual operation
+  // https://stackoverflow.com/questions/22387586/measuring-execution-time-of-a-function-in-c
+  for (int i = 0; i < 10; ++i)
+  {
+    auto t1 = std::chrono::high_resolution_clock::now();
+    xt::xarray<float> matvecproduct = xt::linalg::dot(tr_dense_weights, input_vector);
+    auto t2 = std::chrono::high_resolution_clock::now();
+    //Getting number of milliseconds as a double
+    std::chrono::duration<double, std::milli> ms_double = t2 - t1;
+    std::cout << "Execution Time: " << ms_double.count() << "ms\n";  
+  }
+    std::cout << "******************************" << std::endl;
 
-  std::cout << "******************************" << std::endl;
+//   // Display Output
+//   std::cout << "Matrix-Vector Product Shape: " << xt::adapt(matvecproduct.shape()) << std::endl;
+//   std::cout << "Matrix-Vector Product" << std::endl;
+//   std::cout << matvecproduct << std::endl;
+//   std::cout << "******************************" << std::endl;
   return 0;
 }
 
