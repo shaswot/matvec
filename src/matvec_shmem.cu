@@ -87,7 +87,9 @@ __global__ void MatMulKernel(T *out, T *in, T *a,
   // https://stackoverflow.com/questions/24419822/efficiently-initializing-shared-memory-array-in-cuda/24419969#24419969
   // use threads to write into independent locations of b[] from in []
   __shared__ T b[BLOCK_WIDTH];
-  __shared__ T in_sub[BLOCK_HEIGHT][BLOCK_WIDTH + 31];
+//   __shared__ T in_sub[BLOCK_HEIGHT][BLOCK_WIDTH + 31];
+  __shared__ T in_sub[BLOCK_HEIGHT][BLOCK_WIDTH];
+
   
   // ADD in[][] into the shared memory and pad accordingly
   
@@ -137,7 +139,7 @@ __global__ void MatMulKernel(T *out, T *in, T *a,
 }
 
 template <class _Tp>
-xt::xarray<_Tp> matvec_banking (xt::xarray<_Tp> matrix_A, 
+xt::xarray<_Tp> matvec_shmem (xt::xarray<_Tp> matrix_A, 
                            xt::xarray<_Tp> vector_B)
 {
   unsigned int n_rows = matrix_A.shape()[0];
@@ -251,12 +253,12 @@ int main()
   
 //   for (int i = 0; i < 10; ++i)
 //   {
-//     matvec_banking(tr_dense_weights, input_vector);
+//     matvec_shmem(tr_dense_weights, input_vector);
 //   }
 //   std::cout << "******************************" << std::endl;
   
   // Display Output
-  auto matvecproduct = matvec_banking(tr_dense_weights, input_vector);
+  auto matvecproduct = matvec_shmem(tr_dense_weights, input_vector);
 //   std::cout << "Matrix-Vector Product Shape: " << xt::adapt(matvecproduct.shape()) << std::endl;
 //   std::cout << "Matrix-Vector Product" << std::endl;
 //   std::cout << matvecproduct << std::endl;

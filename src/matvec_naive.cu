@@ -1,6 +1,5 @@
 #include <iostream>
 #include <string>
-#include <cublas_v2.h>
 
 #include <xtensor/xarray.hpp>
 #include <xtensor/xio.hpp>
@@ -10,12 +9,69 @@
 
 #include <boost/filesystem.hpp>
 
+#define BLOCK_HEIGHT 16
+
 // GLOBAL VARIABLES
 uint LAYER_WIDTH = 512;
 uint MODEL_SEED = 52233264;
 
+
+// GPC_ID to get thread ID values
+struct GPC_ID 
+{
+    uint t_idx, t_idy, t_idz;
+    uint cta_idx, cta_idy, cta_idz;
+    uint warp_id, sm_id, grid_id;
+};
+
+// https://stackoverflow.com/questions/612328/difference-between-struct-and-typedef-struct-in-c
+typedef struct GPC_ID gpc_id;
+
+// https://forums.developer.nvidia.com/t/any-way-to-know-on-which-sm-a-thread-is-running/19974/15
+// https://www.codeproject.com/Articles/15971/Using-Inline-Assembly-in-C-C
+__device__ gpc_id get_gpcid(void) 
+{
+     struct GPC_ID my_id;
+     asm("mov.u32 %0, %tid.x;"    : "=r"(my_id.t_idx)    );
+     asm("mov.u32 %0, %tid.y;"    : "=r"(my_id.t_idy)    );
+     asm("mov.u32 %0, %tid.z;"    : "=r"(my_id.t_idz)    );
+
+     asm("mov.u32 %0, %warpid;" : "=r"(my_id.warp_id) );
+     asm("mov.u32 %0, %smid;"   : "=r"(my_id.sm_id)   );
+     asm("mov.u32 %0, %gridid;"   : "=r"(my_id.grid_id)   );
+     
+     asm("mov.u32 %0, %ctaid.x;"  : "=r"(my_id.cta_idx)  );
+     asm("mov.u32 %0, %ctaid.y;"  : "=r"(my_id.cta_idy)  );
+     asm("mov.u32 %0, %ctaid.z;"  : "=r"(my_id.cta_idz)  );
+     
+     return my_id;
+}
+
+// Matrix-vector multiplication using CUDA
+// Once CUDA Core is responsible for one element of the output matrix
+
+template<typename T>
+__global__ void MatMulKernel_naive(T *out, T *in, T *a, 
+                             const int matrixHeight, 
+                             const int matrixWidth,
+                             gpc_id* myid) 
+{
+  
+  int row = blockIdx.x * blockDim.x + threadIdx.x;   
+  
+  // check boundry conditions
+  if( row < matrixHeight)
+  {
+    T value = 0;
+    for(int k = 0; k < matrixWidth; k++)
+      value += a[row * matrixWidth + k] * in[k];
+    // store results
+    out[row] = value;
+  }
+}
+
 template <class _Tp>
-xt::xarray<_Tp> matVec_cublas (xt::xarray<_Tp> matrix_A, 
+xt::xarray<_Tp> matvec_naive (xt::xarray<_Tp> matrix_A, 
                            xt::xarray<_Tp> vector_B)
 {
   unsigned int n_rows = matrix_A.shape()[0];
@@ -27,23 +83,19 @@ xt::xarray<_Tp> matVec_cublas (xt::xarray<_Tp> matrix_A,
   assert (vector_B.shape()[1] == 1 && "vector B no. of columns != 1");
   unsigned int size_C = n_rows;
   
-  //cublas handle
-  cublasHandle_t handle;
-  cublasCreate(&handle);
-  
   // declare matrices for GPU and allocate memory
   
   // host copies of A,B,C
   _Tp *A = new _Tp[size_A];
   _Tp *B = new _Tp[size_B]; 
   _Tp *C = new _Tp[size_C];
-//   gpc_id *myid = new gpc_id[size_C];
+  gpc_id *myid = new gpc_id[size_C];
   
   // Allocate Unified Memory – accessible from CPU or GPU
   cudaMallocManaged(&A, size_A*sizeof(_Tp));
   cudaMallocManaged(&B, size_B*sizeof(_Tp));
   cudaMallocManaged(&C, size_C*sizeof(_Tp));
-//   cudaMallocManaged(&myid, size_C*sizeof(gpc_id));
+  cudaMallocManaged(&myid, size_C*sizeof(gpc_id));
   
   // Fill the matrix values from xtensor to C++ array
   for (int i = 0; i < size_A; i++)
@@ -52,46 +104,35 @@ xt::xarray<_Tp> matVec_cublas (xt::xarray<_Tp> matrix_A,
   for (int i = 0; i < size_B; i++)
   B[i] = vector_B.flat(i);
   
+
   //run mat-vec multiplication
-  float alpha = 1.0f, beta = 0.0f;
-  cudaDeviceSynchronize();
-  
+  // set up threading and blocking variables
+  // Block Grid for MatMulKernel_naive<<< >>>
+  // Each thread calculates on value of output vector by taking an entire row of matrix and the entire col. of vector
+  // Threads are grouped into a 1-D Block Array
+  dim3 dimBlock(BLOCK_HEIGHT, 1);
+  int no_of_blocks = (int) ceil(n_rows / (double) BLOCK_HEIGHT);
+  dim3 dimGrid(no_of_blocks,1);
+
   // time the matvel multiplication operation
-  
   // https://developer.nvidia.com/blog/how-implement-performance-metrics-cuda-cc/
   cudaEvent_t start, stop;
   cudaEventCreate(&start);
   cudaEventCreate(&stop);
-  
   cudaEventRecord(start);
-
-  // https://docs.nvidia.com/cuda/cublas/index.html#cublas-lt-t-gt-gemm
-  // https://stackoverflow.com/questions/16376804/clarification-of-the-leading-dimension-in-cublas-when-transposing
-  // A (stored in row-major) is read as A_T when read in column major
-  // So instead of A.B (in row-major), we do B_T.A_T
-  // B_T = 1 x n_cols 
-  // A_T = n_cols x n_rows
-  cublasSgemm(handle,
-              CUBLAS_OP_N, CUBLAS_OP_N, // B is read as B_T and A is read as A_T
-              1, // rows of matrix B_T
-              n_rows, // cols of A_T
-              n_cols, // cols of matrix B_T
-              &alpha,
-              B, 1,
-              A, n_cols,
-              &beta,
-              C, 1);
+  // execute kernel
+  MatMulKernel_naive<float><<<dimGrid, dimBlock>>>(C, B, A, n_rows, n_cols, myid);
+  cudaDeviceSynchronize();
   cudaEventRecord(stop);
   cudaEventSynchronize(stop);
   float milliseconds = 0;
   cudaEventElapsedTime(&milliseconds, start, stop);
   std::cout << "Execution Time: " << milliseconds << " ms" << std::endl;
-  
+   
   // Convert product vector to xtensor
   xt::xarray<double>::shape_type C_shape = {size_C, 1};
   xt::xarray<_Tp> vec_C = xt::adapt(C, size_C, xt::no_ownership(), C_shape);
-  
-  // free memory
+
   cudaFree(A);
   cudaFree(B);
   cudaFree(C);
@@ -134,12 +175,12 @@ int main()
   
 //   for (int i = 0; i < 10; ++i)
 //   {
-//     matVec_cublas(tr_dense_weights, input_vector);
+//     matvec_naive(tr_dense_weights, input_vector);
 //   }
 //   std::cout << "******************************" << std::endl;
   
   // Display Output
-  auto matvecproduct = matVec_cublas(tr_dense_weights, input_vector);
+  auto matvecproduct = matvec_naive(tr_dense_weights, input_vector);
 //   std::cout << "Matrix-Vector Product Shape: " << xt::adapt(matvecproduct.shape()) << std::endl;
 //   std::cout << "Matrix-Vector Product" << std::endl;
 //   std::cout << matvecproduct << std::endl;

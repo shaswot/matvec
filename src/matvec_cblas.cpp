@@ -90,32 +90,31 @@ int main()
                                           "-" + 
                                           std::to_string(MODEL_SEED) + "_dense_weights.npy";
   
-  std::cout << "******************************" << std::endl;
-  
-  std::cout << "Weights: " << dense_weights_file << std::endl;
+//   std::cout << "******************************" << std::endl;
+//   std::cout << "Weights: " << dense_weights_file << std::endl;
   xt::xarray<float> dense_weights = xt::load_npy<float>(dense_weights_file);
   xt::xarray<float> tr_dense_weights = xt::transpose(dense_weights);
   
   // load input vector from npy file
   uint image_no = 69999;
   const std::string input_vector_file = "../data/vector_" + std::to_string(image_no) + ".npy";
-  std::cout << "Input: " << input_vector_file << std::endl;
+//   std::cout << "Input: " << input_vector_file << std::endl;
   xt::xarray<float> input_vector = xt::load_npy<float>(input_vector_file);
-  std::cout << "******************************" << std::endl;
+//   std::cout << "******************************" << std::endl;
   
-  std::cout << "Transposed Weight Matrix Shape: "<< xt::adapt(tr_dense_weights.shape()) << std::endl;
-  std::cout << "Input Vector Shape: "<< xt::adapt(input_vector.shape()) << std::endl;
-  std::cout << "******************************" << std::endl;
+//   std::cout << "Transposed Weight Matrix Shape: "<< xt::adapt(tr_dense_weights.shape()) << std::endl;
+//   std::cout << "Input Vector Shape: "<< xt::adapt(input_vector.shape()) << std::endl;
+//   std::cout << "******************************" << std::endl;
   
   // Matrix-vector multiplication
-  for (int i = 0; i < 10; ++i)
-  {
-    matVec_cblas(tr_dense_weights, input_vector);
-  }
-  std::cout << "******************************" << std::endl;
+//   for (int i = 0; i < 10; ++i)
+//   {
+//     matVec_cblas(tr_dense_weights, input_vector);
+//   }
+//   std::cout << "******************************" << std::endl;
 
-//   // Display Output
-//   auto matvecproduct = matVec_cblas(tr_dense_weights, input_vector);
+  // Display Output
+  auto matvecproduct = matVec_cblas(tr_dense_weights, input_vector);
 //   std::cout << "Matrix-Vector Product Shape: " << xt::adapt(matvecproduct.shape()) << std::endl;
 //   std::cout << "Matrix-Vector Product" << std::endl;
 //   std::cout << matvecproduct << std::endl;

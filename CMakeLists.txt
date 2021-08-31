@@ -49,3 +49,11 @@ target_link_libraries(matvec_cublas -lcublas)
 # matvec_banking
 add_executable(matvec_banking src/matvec_banking.cu)
 target_link_libraries(matvec_banking)
+
+# matvec_shmem
+add_executable(matvec_shmem src/matvec_shmem.cu)
+target_link_libraries(matvec_shmem)
+
+# matvec_naive
+add_executable(matvec_naive src/matvec_naive.cu)
+target_link_libraries(matvec_naive)
