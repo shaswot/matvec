@@ -41,7 +41,7 @@ xt::xarray<_Tp> matVec_cblas (xt::xarray<_Tp> matrix_A,
   for (int i = 0; i < size_B; i++)
   B[i] = vector_B.flat(i);
   
-  
+  float alpha = 1.0f, beta = 0.0f;
   // Time the actual operation
   // https://stackoverflow.com/questions/22387586/measuring-execution-time-of-a-function-in-c
   auto t1 = std::chrono::high_resolution_clock::now();
@@ -51,12 +51,12 @@ xt::xarray<_Tp> matVec_cblas (xt::xarray<_Tp> matrix_A,
               CblasNoTrans, 
               n_rows, // number of rows in matrix A
               n_cols, // number of cols in matrix A
-              1.0f, // alpha: scaling constant
+              alpha, // alpha: scaling constant
               A, // m by n matrix A
               n_cols, // leading dimension of the array specified for a
               B, // the vector x
               1, // stride for vector x
-              0.0f, // beta: scaling constant
+              beta, // beta: scaling constant
               C, // vector y
               1 // the stride for vector y
              );

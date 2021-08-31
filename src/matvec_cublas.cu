@@ -1,28 +1,21 @@
 #include <iostream>
 #include <string>
-
+#include <cublas_v2.h>
 
 #include <xtensor/xarray.hpp>
 #include <xtensor/xio.hpp>
 #include <xtensor/xview.hpp>
 #include <xtensor/xnpy.hpp>
 #include <xtensor/xsort.hpp>
-#include <xtensor-blas/xlinalg.hpp>
 
 #include <boost/filesystem.hpp>
-
-#include <time.h>
-#include <cblas.h>
-#include <cublas_v2.h>
-
-
 
 // GLOBAL VARIABLES
 uint LAYER_WIDTH = 512;
 uint MODEL_SEED = 52233264;
 
 template <class _Tp>
-xt::xarray<_Tp> matVecMul (xt::xarray<_Tp> matrix_A, 
+xt::xarray<_Tp> matVec_cublas (xt::xarray<_Tp> matrix_A, 
                            xt::xarray<_Tp> vector_B)
 {
   unsigned int n_rows = matrix_A.shape()[0];
@@ -33,6 +26,10 @@ xt::xarray<_Tp> matVecMul (xt::xarray<_Tp> matrix_A,
   assert (vector_B.shape()[0] == size_B && "matrix A and vector B shape mismatch.");
   assert (vector_B.shape()[1] == 1 && "vector B no. of columns != 1");
   unsigned int size_C = n_rows;
+  
+  //cublas handle
+  cublasHandle_t handle;
+  cublasCreate(&handle);
   
   // declare matrices for GPU and allocate memory
   
@@ -56,7 +53,43 @@ xt::xarray<_Tp> matVecMul (xt::xarray<_Tp> matrix_A,
   B[i] = vector_B.flat(i);
   
   //run mat-vec multiplication
+  float alpha = 1.0f, beta = 0.0f;
+  cudaDeviceSynchronize();
   
+  // time the matvel multiplication operation
+  
+  // https://developer.nvidia.com/blog/how-implement-performance-metrics-cuda-cc/
+  cudaEvent_t start, stop;
+  cudaEventCreate(&start);
+  cudaEventCreate(&stop);
+  
+  cudaEventRecord(start);
+
+  // https://docs.nvidia.com/cuda/cublas/index.html#cublas-lt-t-gt-gemm
+  // https://stackoverflow.com/questions/16376804/clarification-of-the-leading-dimension-in-cublas-when-transposing
+  // A (stored in row-major) is read as A_T when read in column major
+  // So instead of A.B (in row-major), we do B_T.A_T
+  // B_T = 1 x n_cols 
+  // A_T = n_cols x n_rows
+  cublasSgemm(handle,
+              CUBLAS_OP_N, CUBLAS_OP_N, // B is read as B_T and A is read as A_T
+              1, // rows of matrix B_T
+              n_rows, // cols of A_T
+              n_cols, // cols of matrix B_T
+              &alpha,
+              B, 1,
+              A, n_cols,
+              &beta,
+              C, 1);
+  cudaEventRecord(stop);
+  cudaEventSynchronize(stop);
+  float milliseconds = 0;
+  cudaEventElapsedTime(&milliseconds, start, stop);
+  std::cout << "Execution Time: " << milliseconds <<std::endl;
+  
+  // Convert product vector to xtensor
+  xt::xarray<double>::shape_type C_shape = {size_C, 1};
+  xt::xarray<_Tp> vec_C = xt::adapt(C, size_C, xt::no_ownership(), C_shape);
   
   // free memory
   cudaFree(A);
@@ -100,18 +133,19 @@ int main()
   std::cout << "Input Vector Shape: "<< xt::adapt(input_vector.shape()) << std::endl;
   std::cout << "******************************" << std::endl;
   
-  
-  xt::xarray<float> matvecproduct = xt::linalg::dot(tr_dense_weights, input_vector);
-  
-  
-  std::cout << "Matrix-Vector Product Shape: " << xt::adapt(matvecproduct.shape()) << std::endl;
-  std::cout << "Matrix-Vector Product" << std::endl;
-  std::cout << matvecproduct << std::endl;
-  
-  
-    
-
+  for (int i = 0; i < 10; ++i)
+  {
+    matVec_cublas(tr_dense_weights, input_vector);
+  }
   std::cout << "******************************" << std::endl;
+  
+//   // Display Output
+//   auto matvecproduct = matVec_cublas(tr_dense_weights, input_vector);
+//   std::cout << "Matrix-Vector Product Shape: " << xt::adapt(matvecproduct.shape()) << std::endl;
+//   std::cout << "Matrix-Vector Product" << std::endl;
+//   std::cout << matvecproduct << std::endl;
+  
+//   std::cout << "******************************" << std::endl;
   return 0;
 }
 
