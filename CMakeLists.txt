@@ -57,3 +57,7 @@ target_link_libraries(matvec_shmem)
 # matvec_naive
 add_executable(matvec_naive src/matvec_naive.cu)
 target_link_libraries(matvec_naive)
+
+# matvec_banking_blcks
+add_executable(matvec_banking_blcks src/matvec_banking_blcks.cu)
+target_link_libraries(matvec_banking_blcks)
