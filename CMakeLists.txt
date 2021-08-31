@@ -45,3 +45,7 @@ endif()
 # matvec_cublas 
 add_executable(matvec_cublas src/matvec_cublas.cu)
 target_link_libraries(matvec_cublas -lcublas)
+
+# matvec_banking
+add_executable(matvec_banking src/matvec_banking.cu)
+target_link_libraries(matvec_banking)

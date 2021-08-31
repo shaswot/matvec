@@ -85,7 +85,7 @@ xt::xarray<_Tp> matVec_cublas (xt::xarray<_Tp> matrix_A,
   cudaEventSynchronize(stop);
   float milliseconds = 0;
   cudaEventElapsedTime(&milliseconds, start, stop);
-  std::cout << "Execution Time: " << milliseconds <<std::endl;
+  std::cout << "Execution Time: " << milliseconds << " ms" << std::endl;
   
   // Convert product vector to xtensor
   xt::xarray<double>::shape_type C_shape = {size_C, 1};

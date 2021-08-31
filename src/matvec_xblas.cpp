@@ -58,7 +58,7 @@ int main()
     auto t2 = std::chrono::high_resolution_clock::now();
     //Getting number of milliseconds as a double
     std::chrono::duration<double, std::milli> ms_double = t2 - t1;
-    std::cout << "Execution Time: " << ms_double.count() << "ms\n";  
+    std::cout << "Execution Time: " << ms_double.count() << "ms" << std::endl;  
   }
     std::cout << "******************************" << std::endl;
 
