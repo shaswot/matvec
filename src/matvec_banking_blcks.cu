@@ -30,7 +30,7 @@ typedef struct GPC_ID gpc_id;
 // https://www.codeproject.com/Articles/15971/Using-Inline-Assembly-in-C-C
 __device__ gpc_id get_gpcid(void) 
 {
-     struct GPC_ID my_id;
+     gpc_id my_id;
      asm("mov.u32 %0, %tid.x;"    : "=r"(my_id.t_idx)    );
      asm("mov.u32 %0, %tid.y;"    : "=r"(my_id.t_idy)    );
      asm("mov.u32 %0, %tid.z;"    : "=r"(my_id.t_idz)    );
@@ -43,10 +43,17 @@ __device__ gpc_id get_gpcid(void)
      asm("mov.u32 %0, %ctaid.y;"  : "=r"(my_id.cta_idy)  );
      asm("mov.u32 %0, %ctaid.z;"  : "=r"(my_id.cta_idz)  );
   
-  my_id.t_idx = 32;
-  my_id.t_idy = 63;
-     
      return my_id;
+}
+
+
+__global__ void GET_ID(gpc_id *myid)
+{
+  int tid = threadIdx.x + 
+            blockIdx.x * blockDim.x + 
+            blockIdx.y * gridDim.x * blockDim.x;
+//   printf("mytid: %d", tid);
+  myid[tid] = get_gpcid();
 }
 
 // // Matrix-vector multiplication using CUDA
@@ -56,7 +63,7 @@ __global__ void MatMulKernel(T *out, T *in, T *a,
                              const int matrixHeight, 
                              const int matrixWidth,
                              gpc_id* myid) 
-{
+{ 
   // get variables for loop
   // copy section of b into shared mem
   // go through the threads vertically and sum them into a variable
@@ -89,7 +96,6 @@ __global__ void MatMulKernel(T *out, T *in, T *a,
   // use threads to write into independent locations of b[] from in []
   __shared__ T b[BLOCK_WIDTH];
   __shared__ T in_sub[BLOCK_HEIGHT][BLOCK_WIDTH + 31];
-//   __shared__ T in_sub[BLOCK_HEIGHT][BLOCK_WIDTH];
 
   
   int threads_per_block = BLOCK_HEIGHT;
@@ -112,28 +118,26 @@ __global__ void MatMulKernel(T *out, T *in, T *a,
   T cSum = (T) 0.0;
   int threadyInd = blockyInd + threadIdx.x;
 
-  // make sure we are inside the matrix verticallly
+//   // make sure we are inside the matrix verticallly
   if (threadyInd < matrixHeight) 
   {
     // each thread computes one element of a block segment of the output vector
     
     for (int i=0; i<blockElt; i++)
     {
-      // row R of matrix a[] --> (blockIdx.y * BLOCK_HEIGHT + threadIdx.x) * matrixWidth = (blockyInd + threadIdx.x) * matrixWidth
-      // col C of row R of matrix a[] --> blockIdx.x * BLOCK_WIDTH = blockxInd
-      // element E of col C of row R of matrix a[] --> i
-      // b[i] is accessed by all threads and therefore it is broadcast without any banking conflicts.
-//       cSum += b[i] * a[(blockyInd + threadIdx.x) * matrixWidth + blockxInd + i]; //working version
-      cSum += in_sub[threadIdx.x][i] * b[i];
-
-//       if (i==blockElt-1)
-//       printf("blockxInd = %d, blockyInd = %d, threadIdx.x = %d, csum = %f\n", blockxInd, blockyInd, threadIdx.x, cSum);
+//       cSum += in_sub[threadIdx.x][i] * b[i];
     }
     // atomic add these variables to the corresponding c index
     atomicAdd(out + threadyInd, cSum);
   }
-  myid[blockxInd + threadyInd] = get_gpcid();
-  
+//   int tid = threadIdx.x + 
+//             blockIdx.x * blockDim.x + 
+//             blockIdx.y * gridDim.x * blockDim.x;
+  int tid = threadIdx.x + 
+            blockIdx.x * BLOCK_WIDTH + 
+            blockIdx.y * BLOCK_HEIGHT * matrixWidth ;
+  myid[tid] = get_gpcid();
+   __syncthreads();
 }
 
 template <class _Tp>
@@ -149,17 +153,26 @@ xt::xarray<_Tp> matvec_banking (xt::xarray<_Tp> matrix_A,
   assert (vector_B.shape()[1] == 1 && "vector B no. of columns != 1");
   unsigned int size_C = n_rows;
   
-  // declare matrices for GPU and allocate memory
+  // Block Grid for MatMulKernel<<< >>>
+  int blockCols = (int) ceil(n_cols / (double) BLOCK_WIDTH);
+  int blockRows = (int) ceil(n_rows / (double) BLOCK_HEIGHT);
+  dim3 dimBlock(BLOCK_HEIGHT); // BLOCK_HEIGHT directly corresponds to no. of threads per block i.e., one thread per row of the block.
+  dim3 dimGrid(blockCols, blockRows);
+  std::cout << "Gridblock size (Row x Col): (" << blockRows << ","<< blockCols << ")\t";
+  std::cout << "BLOCK size (Hgt x Wdth): (" << BLOCK_HEIGHT << ","<< BLOCK_WIDTH << ")\t";
+  unsigned int no_of_threads = blockCols*blockRows*BLOCK_HEIGHT; //no. of blocks * threads in each block
   
   // host copies of A,B,C
   _Tp *A = new _Tp[size_A];
   _Tp *B = new _Tp[size_B]; 
   _Tp *C = new _Tp[size_C];
+  gpc_id *myid = new gpc_id[no_of_threads];
   
   // Allocate Unified Memory – accessible from CPU or GPU
   cudaMallocManaged(&A, size_A*sizeof(_Tp));
   cudaMallocManaged(&B, size_B*sizeof(_Tp));
   cudaMallocManaged(&C, size_C*sizeof(_Tp));
+  cudaMallocManaged(&myid, no_of_threads*sizeof(gpc_id));
   
   // Fill the matrix values from xtensor to C++ array
   for (int i = 0; i < size_A; i++)
@@ -168,26 +181,13 @@ xt::xarray<_Tp> matvec_banking (xt::xarray<_Tp> matrix_A,
   for (int i = 0; i < size_B; i++)
   B[i] = vector_B.flat(i);
   
-
-  //run mat-vec multiplication
-  // set up threading and blocking variables
-  // Block Grid for MatMulKernel<<< >>>
-  int blockCols = (int) ceil(n_cols / (double) BLOCK_WIDTH);
-  int blockRows = (int) ceil(n_rows / (double) BLOCK_HEIGHT);
-  dim3 dimBlock(BLOCK_HEIGHT); // BLOCK_HEIGHT directly corresponds to no. of threads per block i.e., one thread per row of the block.
-  dim3 dimGrid(blockCols, blockRows);
-  std::cout << "Gridblock size (Row x Col): (" << blockRows << ","<< blockCols << ")\t";
-  std::cout << "BLOCK size (Hgt x Wdth): (" << BLOCK_HEIGHT << ","<< BLOCK_WIDTH << ")\t";
-  
-  unsigned int no_of_threads = blockCols*blockRows*BLOCK_HEIGHT; //no. of blocks * threads in each block
-  gpc_id *myid = new gpc_id[no_of_threads];
-  cudaMallocManaged(&myid, no_of_threads*sizeof(gpc_id));
-
-  int sharedMem = 3 * sizeof (int) + BLOCK_WIDTH * sizeof(_Tp) + BLOCK_HEIGHT*(BLOCK_WIDTH + 31) * sizeof(_Tp);
+  // shared Memory size
+  int sharedMem = 3 * sizeof (int) + 
+                  BLOCK_WIDTH * sizeof(_Tp) + 
+                  BLOCK_HEIGHT * (BLOCK_WIDTH + 31) * sizeof(_Tp);
   // 31 is for padding s.t. (96+31) mod 32 = 1
   // 3 * sizeof (int) -> to store blockElt, blockxInd, blockyInd;
 
-  // execute kernels
   
   // initialize vector C to zero
   cudaMemset(C, 0, n_rows*sizeof(_Tp));
@@ -199,11 +199,19 @@ xt::xarray<_Tp> matvec_banking (xt::xarray<_Tp> matrix_A,
   cudaEventCreate(&stop);
   cudaEventRecord(start);
   
+//   GET_ID<<<dimGrid, dimBlock, sharedMem>>>(myid);
   MatMulKernel<float><<<dimGrid, dimBlock, sharedMem>>>(C, B, A, n_rows, n_cols, myid);
   cudaDeviceSynchronize();
   
   cudaEventRecord(stop);
   cudaEventSynchronize(stop);
+  
+//   for (int i = 0; i < no_of_threads; i++)
+//   {
+//     myid[i].t_idx = i;
+//     myid[i].cta_idy = i*2;
+//   }
+  
   float milliseconds = 0;
   cudaEventElapsedTime(&milliseconds, start, stop);
   std::cout << "Execution Time: " << milliseconds << " ms" << std::endl;
@@ -237,18 +245,18 @@ xt::xarray<_Tp> matvec_banking (xt::xarray<_Tp> matrix_A,
   std::streambuf *coutbuf = std::cout.rdbuf(); //save old buf
   std::cout.rdbuf(out.rdbuf()); //redirect std::cout to out.txt!
 
-  std::cout << "T_IDX  T_IDY  T_IDZ  WRP_ID  SM_ID  GRID_ID  CTA_IDX  CTA_IDY  CTA_IDZ"<< std::endl;
-//   std::cout << "T_IDX  T_IDY  WRP_ID  SM_ID  GRID_ID  CTA_IDX  CTA_IDY"<< std::endl;
+//   std::cout << "T_IDX  T_IDY  T_IDZ  WRP_ID  SM_ID  GRID_ID  CTA_IDX  CTA_IDY  CTA_IDZ"<< std::endl;
+  std::cout << "T_IDX  WRP_ID  SM_ID  GRID_ID  CTA_IDX  CTA_IDY"<< std::endl;
   for (int i = 0; i < no_of_threads; i++){
       std::cout << std::left << std::setw(headerWidths[0]) << myid[i].t_idx;
-      std::cout << std::left << std::setw(headerWidths[0]) << myid[i].t_idy;
-      std::cout << std::left << std::setw(headerWidths[0]) << myid[i].t_idz;
+//       std::cout << std::left << std::setw(headerWidths[0]) << myid[i].t_idy;
+//       std::cout << std::left << std::setw(headerWidths[0]) << myid[i].t_idz;
       std::cout << std::left << std::setw(headerWidths[1]) << myid[i].warp_id;
       std::cout << std::left << std::setw(headerWidths[2]) << myid[i].sm_id;
       std::cout << std::left << std::setw(headerWidths[3]) << myid[i].grid_id;
       std::cout << std::left << std::setw(headerWidths[4]) << myid[i].cta_idx;
       std::cout << std::left << std::setw(headerWidths[4]) << myid[i].cta_idy;
-      std::cout << std::left << std::setw(headerWidths[4]) << myid[i].cta_idz;
+//       std::cout << std::left << std::setw(headerWidths[4]) << myid[i].cta_idz;
       std::cout << std::endl;
   }
   std::cout << "***************************" << std::endl;
