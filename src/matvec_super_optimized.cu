@@ -5,7 +5,6 @@
 #include <xtensor/xio.hpp>
 #include <xtensor/xview.hpp>
 #include <xtensor/xnpy.hpp>
-#include <xtensor/xsort.hpp>
 
 #include <boost/filesystem.hpp>
 
