@@ -61,3 +61,11 @@ target_link_libraries(matvec_naive)
 # matvec_banking_blcks
 add_executable(matvec_banking_blcks src/matvec_banking_blcks.cu)
 target_link_libraries(matvec_banking_blcks)
+
+# matvec_shmem_blcks
+add_executable(matvec_shmem_blcks src/matvec_shmem_blcks.cu)
+target_link_libraries(matvec_shmem_blcks)
+
+# matvec_super_optimized
+add_executable(matvec_super_optimized src/matvec_super_optimized.cu)
+target_link_libraries(matvec_super_optimized)

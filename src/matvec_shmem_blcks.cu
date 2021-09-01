@@ -87,8 +87,8 @@ __global__ void MatMulKernel(T *out, T *in, T *a,
   // https://stackoverflow.com/questions/24419822/efficiently-initializing-shared-memory-array-in-cuda/24419969#24419969
   // use threads to write into independent locations of b[] from in []
   __shared__ T b[BLOCK_WIDTH];
-  __shared__ T in_sub[BLOCK_HEIGHT][BLOCK_WIDTH + 31];
-//   __shared__ T in_sub[BLOCK_HEIGHT][BLOCK_WIDTH];
+//   __shared__ T in_sub[BLOCK_HEIGHT][BLOCK_WIDTH + 31];
+  __shared__ T in_sub[BLOCK_HEIGHT][BLOCK_WIDTH];
 
   
   int threads_per_block = BLOCK_HEIGHT;
@@ -115,7 +115,7 @@ __global__ void MatMulKernel(T *out, T *in, T *a,
   if (threadyInd < matrixHeight) 
   {
     // each thread computes one element of a block segment of the output vector
-    
+
     for (int i=0; i<blockElt; i++)
     {
       // row R of matrix a[] --> (blockIdx.y * BLOCK_HEIGHT + threadIdx.x) * matrixWidth = (blockyInd + threadIdx.x) * matrixWidth
@@ -180,8 +180,8 @@ xt::xarray<_Tp> matvec_banking (xt::xarray<_Tp> matrix_A,
   std::cout << "Gridblock size (Row x Col): (" << blockRows << ","<< blockCols << ")\t";
   std::cout << "BLOCK size (Hgt x Wdth): (" << BLOCK_HEIGHT << ","<< BLOCK_WIDTH << ")\t";
 
-
-  int sharedMem = 3 * sizeof (int) + BLOCK_WIDTH * sizeof(_Tp) + BLOCK_HEIGHT*(BLOCK_WIDTH + 31) * sizeof(_Tp);
+  int sharedMem = 3 * sizeof (int) + BLOCK_WIDTH * sizeof(_Tp) + BLOCK_HEIGHT*(BLOCK_WIDTH) * sizeof(_Tp);
+//   int sharedMem = 3 * sizeof (int) + BLOCK_WIDTH * sizeof(_Tp) + BLOCK_HEIGHT*(BLOCK_WIDTH + 31) * sizeof(_Tp);
   // 31 is for padding s.t. (96+31) mod 32 = 1
   // 3 * sizeof (int) -> to store blockElt, blockxInd, blockyInd;
 

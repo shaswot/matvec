@@ -17,44 +17,12 @@ uint LAYER_WIDTH = 512;
 uint MODEL_SEED = 52233264;
 
 
-// GPC_ID to get thread ID values
-struct GPC_ID 
-{
-    uint t_idx, t_idy, t_idz;
-    uint cta_idx, cta_idy, cta_idz;
-    uint warp_id, sm_id, grid_id;
-};
-
-// https://stackoverflow.com/questions/612328/difference-between-struct-and-typedef-struct-in-c
-typedef struct GPC_ID gpc_id;
-
-// https://forums.developer.nvidia.com/t/any-way-to-know-on-which-sm-a-thread-is-running/19974/15
-// https://www.codeproject.com/Articles/15971/Using-Inline-Assembly-in-C-C
-__device__ gpc_id get_gpcid(void) 
-{
-     struct GPC_ID my_id;
-     asm("mov.u32 %0, %tid.x;"    : "=r"(my_id.t_idx)    );
-     asm("mov.u32 %0, %tid.y;"    : "=r"(my_id.t_idy)    );
-     asm("mov.u32 %0, %tid.z;"    : "=r"(my_id.t_idz)    );
-
-     asm("mov.u32 %0, %warpid;" : "=r"(my_id.warp_id) );
-     asm("mov.u32 %0, %smid;"   : "=r"(my_id.sm_id)   );
-     asm("mov.u32 %0, %gridid;"   : "=r"(my_id.grid_id)   );
-     
-     asm("mov.u32 %0, %ctaid.x;"  : "=r"(my_id.cta_idx)  );
-     asm("mov.u32 %0, %ctaid.y;"  : "=r"(my_id.cta_idy)  );
-     asm("mov.u32 %0, %ctaid.z;"  : "=r"(my_id.cta_idz)  );
-     
-     return my_id;
-}
-
 // // Matrix-vector multiplication using CUDA
 // // Using shared memory and avoiding banking conflicts
 template<typename T>
 __global__ void MatMulKernel(T *out, T *in, T *a, 
                              const int matrixHeight, 
-                             const int matrixWidth,
-                             gpc_id* myid) 
+                             const int matrixWidth)
 {
   // get variables for loop
   // copy section of b into shared mem
@@ -130,7 +98,7 @@ __global__ void MatMulKernel(T *out, T *in, T *a,
     }
     // atomic add these variables to the corresponding c index
     atomicAdd(out + threadyInd, cSum);
-//     myid[threadyInd] = get_gpcid();
+
   }
   
 }
@@ -154,13 +122,11 @@ xt::xarray<_Tp> matvec_banking (xt::xarray<_Tp> matrix_A,
   _Tp *A = new _Tp[size_A];
   _Tp *B = new _Tp[size_B]; 
   _Tp *C = new _Tp[size_C];
-  gpc_id *myid = new gpc_id[size_C];
   
   // Allocate Unified Memory – accessible from CPU or GPU
   cudaMallocManaged(&A, size_A*sizeof(_Tp));
   cudaMallocManaged(&B, size_B*sizeof(_Tp));
   cudaMallocManaged(&C, size_C*sizeof(_Tp));
-  cudaMallocManaged(&myid, size_C*sizeof(gpc_id));
   
   // Fill the matrix values from xtensor to C++ array
   for (int i = 0; i < size_A; i++)
@@ -177,35 +143,14 @@ xt::xarray<_Tp> matvec_banking (xt::xarray<_Tp> matrix_A,
   int blockRows = (int) ceil(n_rows / (double) BLOCK_HEIGHT);
   dim3 dimBlock(BLOCK_HEIGHT); // BLOCK_HEIGHT directly corresponds to no. of threads per block i.e., one thread per row of the block.
   dim3 dimGrid(blockCols, blockRows);
-  std::cout << "Gridblock size (Row x Col): (" << blockRows << ","<< blockCols << ")\t";
-  std::cout << "BLOCK size (Hgt x Wdth): (" << BLOCK_HEIGHT << ","<< BLOCK_WIDTH << ")\t";
-
-
   int sharedMem = 3 * sizeof (int) + BLOCK_WIDTH * sizeof(_Tp) + BLOCK_HEIGHT*(BLOCK_WIDTH + 31) * sizeof(_Tp);
-  // 31 is for padding s.t. (96+31) mod 32 = 1
+  // 31 is for padding s.t. (98+31) mod 32 = 1
   // 3 * sizeof (int) -> to store blockElt, blockxInd, blockyInd;
 
-  // execute kernels
-  
   // initialize vector C to zero
   cudaMemset(C, 0, n_rows*sizeof(_Tp));
-  
-  // time the matvel multiplication operation
-  // https://developer.nvidia.com/blog/how-implement-performance-metrics-cuda-cc/
-  cudaEvent_t start, stop;
-  cudaEventCreate(&start);
-  cudaEventCreate(&stop);
-  cudaEventRecord(start);
-  
-  MatMulKernel<float><<<dimGrid, dimBlock, sharedMem>>>(C, B, A, n_rows, n_cols, myid);
-  cudaDeviceSynchronize();
-  
-  cudaEventRecord(stop);
-  cudaEventSynchronize(stop);
-  float milliseconds = 0;
-  cudaEventElapsedTime(&milliseconds, start, stop);
-  std::cout << "Execution Time: " << milliseconds << " ms" << std::endl;
-   
+  // execute kernels
+  MatMulKernel<float><<<dimGrid, dimBlock, sharedMem>>>(C, B, A, n_rows, n_cols);
   // Convert product vector to xtensor
   xt::xarray<double>::shape_type C_shape = {size_C, 1};
   xt::xarray<_Tp> vec_C = xt::adapt(C, size_C, xt::no_ownership(), C_shape);
