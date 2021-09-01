@@ -150,6 +150,7 @@ xt::xarray<_Tp> matvec_banking (xt::xarray<_Tp> matrix_A,
   cudaMemset(C, 0, n_rows*sizeof(_Tp));
   // execute kernels
   MatMulKernel<float><<<dimGrid, dimBlock, sharedMem>>>(C, B, A, n_rows, n_cols);
+  cudaDeviceSynchronize();
   // Convert product vector to xtensor
   xt::xarray<double>::shape_type C_shape = {size_C, 1};
   xt::xarray<_Tp> vec_C = xt::adapt(C, size_C, xt::no_ownership(), C_shape);

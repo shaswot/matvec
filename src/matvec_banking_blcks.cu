@@ -7,8 +7,6 @@
 #include <xtensor/xnpy.hpp>
 #include <xtensor/xsort.hpp>
 
-#include <boost/filesystem.hpp>
-
 #define BLOCK_HEIGHT 64
 #define BLOCK_WIDTH 98
 
@@ -44,6 +42,9 @@ __device__ gpc_id get_gpcid(void)
      asm("mov.u32 %0, %ctaid.x;"  : "=r"(my_id.cta_idx)  );
      asm("mov.u32 %0, %ctaid.y;"  : "=r"(my_id.cta_idy)  );
      asm("mov.u32 %0, %ctaid.z;"  : "=r"(my_id.cta_idz)  );
+  
+  my_id.t_idx = 32;
+  my_id.t_idy = 63;
      
      return my_id;
 }
@@ -130,8 +131,8 @@ __global__ void MatMulKernel(T *out, T *in, T *a,
     }
     // atomic add these variables to the corresponding c index
     atomicAdd(out + threadyInd, cSum);
-//     myid[threadyInd] = get_gpcid();
   }
+  myid[blockxInd + threadyInd] = get_gpcid();
   
 }
 
@@ -154,13 +155,11 @@ xt::xarray<_Tp> matvec_banking (xt::xarray<_Tp> matrix_A,
   _Tp *A = new _Tp[size_A];
   _Tp *B = new _Tp[size_B]; 
   _Tp *C = new _Tp[size_C];
-  gpc_id *myid = new gpc_id[size_C];
   
   // Allocate Unified Memory – accessible from CPU or GPU
   cudaMallocManaged(&A, size_A*sizeof(_Tp));
   cudaMallocManaged(&B, size_B*sizeof(_Tp));
   cudaMallocManaged(&C, size_C*sizeof(_Tp));
-  cudaMallocManaged(&myid, size_C*sizeof(gpc_id));
   
   // Fill the matrix values from xtensor to C++ array
   for (int i = 0; i < size_A; i++)
@@ -179,7 +178,10 @@ xt::xarray<_Tp> matvec_banking (xt::xarray<_Tp> matrix_A,
   dim3 dimGrid(blockCols, blockRows);
   std::cout << "Gridblock size (Row x Col): (" << blockRows << ","<< blockCols << ")\t";
   std::cout << "BLOCK size (Hgt x Wdth): (" << BLOCK_HEIGHT << ","<< BLOCK_WIDTH << ")\t";
-
+  
+  unsigned int no_of_threads = blockCols*blockRows*BLOCK_HEIGHT; //no. of blocks * threads in each block
+  gpc_id *myid = new gpc_id[no_of_threads];
+  cudaMallocManaged(&myid, no_of_threads*sizeof(gpc_id));
 
   int sharedMem = 3 * sizeof (int) + BLOCK_WIDTH * sizeof(_Tp) + BLOCK_HEIGHT*(BLOCK_WIDTH + 31) * sizeof(_Tp);
   // 31 is for padding s.t. (96+31) mod 32 = 1
@@ -209,10 +211,54 @@ xt::xarray<_Tp> matvec_banking (xt::xarray<_Tp> matrix_A,
   // Convert product vector to xtensor
   xt::xarray<double>::shape_type C_shape = {size_C, 1};
   xt::xarray<_Tp> vec_C = xt::adapt(C, size_C, xt::no_ownership(), C_shape);
+  
+  // Log the output of myid
+  // https://stackoverflow.com/questions/25918057/how-to-set-a-fixed-width-with-cout
+  size_t headerWidths[5] = {std::string("T_IDX  ").size(),
+                            std::string("WRP_ID  ").size(),
+                            std::string("SM_ID  ").size(),
+                            std::string("GRID_ID  ").size(),
+                            std::string("CTA_IDX  ").size()
+                            };
+  // Redirecting output to a file
+  // https://stackoverflow.com/questions/10150468/how-to-redirect-cin-and-cout-to-files
+  // https://stackoverflow.com/questions/29464578/append-std-output-of-a-function-to-a-file
+  
+  const std::string cuda_log_file = "../cuda_logfiles/cuda_log-w" + 
+                                    std::to_string(LAYER_WIDTH) + 
+                                    "x" + 
+                                    std::to_string(LAYER_WIDTH) + 
+                                    "-" + 
+                                    std::to_string(MODEL_SEED) + 
+                                    ".txt";
+  
+  
+  std::ofstream out(cuda_log_file, std::fstream::app);
+  std::streambuf *coutbuf = std::cout.rdbuf(); //save old buf
+  std::cout.rdbuf(out.rdbuf()); //redirect std::cout to out.txt!
+
+  std::cout << "T_IDX  T_IDY  T_IDZ  WRP_ID  SM_ID  GRID_ID  CTA_IDX  CTA_IDY  CTA_IDZ"<< std::endl;
+//   std::cout << "T_IDX  T_IDY  WRP_ID  SM_ID  GRID_ID  CTA_IDX  CTA_IDY"<< std::endl;
+  for (int i = 0; i < no_of_threads; i++){
+      std::cout << std::left << std::setw(headerWidths[0]) << myid[i].t_idx;
+      std::cout << std::left << std::setw(headerWidths[0]) << myid[i].t_idy;
+      std::cout << std::left << std::setw(headerWidths[0]) << myid[i].t_idz;
+      std::cout << std::left << std::setw(headerWidths[1]) << myid[i].warp_id;
+      std::cout << std::left << std::setw(headerWidths[2]) << myid[i].sm_id;
+      std::cout << std::left << std::setw(headerWidths[3]) << myid[i].grid_id;
+      std::cout << std::left << std::setw(headerWidths[4]) << myid[i].cta_idx;
+      std::cout << std::left << std::setw(headerWidths[4]) << myid[i].cta_idy;
+      std::cout << std::left << std::setw(headerWidths[4]) << myid[i].cta_idz;
+      std::cout << std::endl;
+  }
+  std::cout << "***************************" << std::endl;
+  
+  std::cout.rdbuf(coutbuf); //reset to standard output again
 
   cudaFree(A);
   cudaFree(B);
   cudaFree(C);
+  cudaFree(myid);
   
   return vec_C;
 }
@@ -220,7 +266,6 @@ xt::xarray<_Tp> matvec_banking (xt::xarray<_Tp> matrix_A,
 int main()
 {
   // load weights from npy files
-  boost::filesystem::path weight_folder("../weights");
   const std::string dense_weights_folder = "../weights/mnist_dense-w" + 
                                           std::to_string(LAYER_WIDTH) + 
                                           "x" + 
