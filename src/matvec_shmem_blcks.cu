@@ -177,8 +177,8 @@ xt::xarray<_Tp> matvec_banking (xt::xarray<_Tp> matrix_A,
   int blockRows = (int) ceil(n_rows / (double) BLOCK_HEIGHT);
   dim3 dimBlock(BLOCK_HEIGHT); // BLOCK_HEIGHT directly corresponds to no. of threads per block i.e., one thread per row of the block.
   dim3 dimGrid(blockCols, blockRows);
-  std::cout << "Gridblock size (Row x Col): (" << blockRows << ","<< blockCols << ")\t";
-  std::cout << "BLOCK size (Hgt x Wdth): (" << BLOCK_HEIGHT << ","<< BLOCK_WIDTH << ")\t";
+//   std::cout << "Gridblock size (Row x Col): (" << blockRows << ","<< blockCols << ")\t";
+//   std::cout << "BLOCK size (Hgt x Wdth): (" << BLOCK_HEIGHT << ","<< BLOCK_WIDTH << ")\t";
 
   int sharedMem = 3 * sizeof (int) + BLOCK_WIDTH * sizeof(_Tp) + BLOCK_HEIGHT*(BLOCK_WIDTH) * sizeof(_Tp);
 //   int sharedMem = 3 * sizeof (int) + BLOCK_WIDTH * sizeof(_Tp) + BLOCK_HEIGHT*(BLOCK_WIDTH + 31) * sizeof(_Tp);

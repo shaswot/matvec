@@ -9,7 +9,7 @@
 
 #include <boost/filesystem.hpp>
 
-#define BLOCK_HEIGHT 16
+#define BLOCK_HEIGHT 64
 
 // GLOBAL VARIABLES
 uint LAYER_WIDTH = 512;

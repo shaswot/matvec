@@ -9,7 +9,7 @@
 
 #include <boost/filesystem.hpp>
 
-#define BLOCK_HEIGHT 16
+#define BLOCK_HEIGHT 64
 #define BLOCK_WIDTH 98
 
 // GLOBAL VARIABLES
